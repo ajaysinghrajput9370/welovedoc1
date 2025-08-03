@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>We ❤️ DOC - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <img src="/static/assets/logo.svg" alt="We ❤️ DOC">
+            </div>
+            <div class="auth-buttons">
+                {% if user %}
+                    <span class="user-email">{{ user.email }}</span>
+                    <a href="/logout" class="btn btn-logout">Logout</a>
+                {% else %}
+                    <a href="/login" class="btn btn-login">Login</a>
+                    <a href="/register" class="btn btn-signup">Sign Up</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <div class="scrolling-message">
+        <div class="scrolling-text">
+            More tools coming soon: Merge PDF, Compliance Card, Form-11, PF Withdrawal, ESIC Claim! • 
+        </div>
+    </div>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        @WeLoveDoc | Highlight your life | A&S
+    </footer>
+
+    <script src="/static/js/script.js"></script>
+</body>
+</html>
