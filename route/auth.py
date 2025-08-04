@@ -1,0 +1,49 @@
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash
+from werkzeug.security import generate_password_hash, check_password_hash
+from database import get_db
+
+auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
+        db = get_db()
+        user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+
+        if user and check_password_hash(user['password'], password):
+            session['user_id'] = user['id']
+            session['email'] = user['email']
+            flash('Logged in successfully!', 'success')
+            return redirect(url_for('main.index'))
+        else:
+            flash('Invalid email or password', 'danger')
+    return render_template('auth/login.html')
+
+
+@auth_bp.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
+        db = get_db()
+        existing_user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+
+        if existing_user:
+            flash('Email already exists.', 'warning')
+        else:
+            hashed_pw = generate_password_hash(password)
+            db.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hashed_pw))
+            db.commit()
+            flash('Account created successfully! Please login.', 'success')
+            return redirect(url_for('auth.login'))
+    return render_template('auth/signup.html')
+
+
+@auth_bp.route('/logout')
+def logout():
+    session.clear()
+    flash('Logged out successfully.', 'info')
+    return redirect(url_for('auth.login'))
+
