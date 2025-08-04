@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, render_template_string, render_template, request, send_file
 import pandas as pd
 import fitz  # PyMuPDF
 import os
@@ -49,6 +49,10 @@ HTML_PAGE = """
       border-radius: 4px; font-weight: bold;
       cursor: pointer;
     }
+    a.policy-link {
+      color: #007BFF; font-size: 13px;
+      text-decoration: none;
+    }
   </style>
 </head>
 <body>
@@ -76,6 +80,7 @@ HTML_PAGE = """
 
     <button type="submit">Start Highlighting</button>
   </form>
+  <br><a class="policy-link" href="/refund-policy" target="_blank">View Refund Policy</a>
 </div>
 
 <div class="bottom-strip">
@@ -108,7 +113,6 @@ def highlight_pdf(pdf_path, ids_to_match, highlight_type):
                 highlight.update()
             matched_doc.insert_pdf(doc, from_page=page.number, to_page=page.number)
 
-    # Save results
     output_pdf = os.path.join(UPLOAD_FOLDER, f"highlighted_{uuid.uuid4().hex[:6]}.pdf")
     matched_doc.save(output_pdf)
     return output_pdf, list(set(ids_to_match) - matched_any)
@@ -138,7 +142,6 @@ def highlight():
         pd.DataFrame(not_found_ids, columns=["Not Found"]).to_excel(not_found_excel, index=False)
         not_found_excel.seek(0)
 
-    # Serve ZIP if needed or just files:
     if not_found_ids:
         return f"""
         <h3>Highlighting Complete ✅</h3>
@@ -159,10 +162,13 @@ def download_pdf():
 @app.route('/download_excel')
 def download_excel():
     not_found_excel = BytesIO()
-    # Dummy fallback; will only work in-session
     pd.DataFrame(["No matches"]).to_excel(not_found_excel, index=False)
     not_found_excel.seek(0)
     return send_file(not_found_excel, download_name="Data_Not_Found.xlsx", as_attachment=True)
+
+@app.route("/refund-policy")
+def refund_policy():
+    return render_template("refund_policy.html")
 
 if __name__ == '__main__':
     app.run(debug=True)
