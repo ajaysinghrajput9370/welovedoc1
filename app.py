@@ -163,6 +163,22 @@ def download_excel():
     pd.DataFrame(["No matches"]).to_excel(not_found_excel, index=False)
     not_found_excel.seek(0)
     return send_file(not_found_excel, download_name="Data_Not_Found.xlsx", as_attachment=True)
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy_policy.html")
+
+@app.route("/terms")
+def terms():
+    return render_template("terms_conditions.html")
+
+@app.route("/refund")
+def refund():
+    return render_template("refund_policy.html")
+
+@app.route("/contact")
+def contact():
+    return render_template("contact.html")
 
 if __name__ == '__main__':
     app.run(debug=True)
+
