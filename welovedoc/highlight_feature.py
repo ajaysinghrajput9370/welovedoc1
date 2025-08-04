@@ -1,91 +1,67 @@
+import fitz  # PyMuPDF
 import pandas as pd
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject, DictionaryObject, ArrayObject, NumberObject
 import os
-from config import Config
+from openpyxl import Workbook
 
-def add_highlight(page, keyword, full_row=False):
-    text = page.extract_text()
-    if not text:
-        return
+def highlight_pdf(input_pdf_path, excel_path, output_folder):
+    # Read Excel column (assuming first column contains UAN/ESIC numbers)
+    excel_df = pd.read_excel(excel_path, header=None)
+    keywords = set(str(x).strip() for x in excel_df.iloc[:, 0].dropna())
 
-    if keyword not in text:
-        return
+    not_found = set(keywords)
 
-    matches = []
-    lines = text.split('\n')
-    for line in lines:
-        if keyword in line:
-            matches.append(line)
+    pdf_document = fitz.open(input_pdf_path)
+    output_pdf = fitz.open()
 
-    if not matches:
-        return
+    for page_num in range(len(pdf_document)):
+        page = pdf_document[page_num]
+        text_instances = []
 
-    for line in matches:
-        if full_row:
-            highlight_text = line
-        else:
-            highlight_text = keyword
+        for word in page.get_text("words"):
+            word_text = word[4].strip()
+            if word_text in keywords:
+                not_found.discard(word_text)
+                text_instances.append(word)
 
-        if "/Annots" not in page:
-            page[NameObject("/Annots")] = ArrayObject()
+        if text_instances:
+            for inst in text_instances:
+                keyword = inst[4].strip()
+                rect = fitz.Rect(inst[0], inst[1], inst[2], inst[3])
 
-        annotation = DictionaryObject()
-        annotation.update({
-            NameObject("/Type"): NameObject("/Annot"),
-            NameObject("/Subtype"): NameObject("/Highlight"),
-            NameObject("/Rect"): ArrayObject([NumberObject(0), NumberObject(0), NumberObject(0), NumberObject(0)]),
-            NameObject("/C"): ArrayObject([NumberObject(1), NumberObject(1), NumberObject(0)]),  # Yellow color
-            NameObject("/F"): NumberObject(4),
-            # No visible content/text — silent highlight
-        })
+                # Check if ESIC or PF page based on header text
+                page_text = page.get_text().lower()
 
-        page["/Annots"].append(annotation)
+                if "state insurance" in page_text or "esic" in page_text:
+                    # Highlight entire row for ESIC
+                    y0 = inst[1]
+                    y1 = inst[3]
+                    row_rect = fitz.Rect(0, y0 - 1, page.rect.width, y1 + 1)
+                    highlight = page.add_highlight_annot(row_rect)
+                else:
+                    # Highlight only UAN cell (PF type)
+                    highlight = page.add_highlight_annot(rect)
 
-def process_files(pdf_path, excel_path, mode='uan'):
-    df = pd.read_excel(excel_path)
-    values = df.iloc[:, 0].astype(str).tolist()
-    
-    pdf_reader = PdfReader(pdf_path)
-    pdf_writer = PdfWriter()
+                highlight.set_colors(stroke=(1, 1, 0))  # Yellow
+                highlight.update()
 
-    found_values = []
-    keywords_to_always_highlight = [
-        "EMPLOYEE'S PROVIDENT FUND ORGANISATION",
-        "Employees' State Insurance Corporation"
-    ]
+            output_pdf.insert_pdf(pdf_document, from_page=page_num, to_page=page_num)
 
-    for page in pdf_reader.pages:
-        text = page.extract_text()
-        matched = False
+    if len(output_pdf) > 0:
+        base_name = os.path.splitext(os.path.basename(input_pdf_path))[0]
+        for i in range(1, 1000):
+            result_filename = f"{base_name}_highlighted_{i}.pdf"
+            result_path = os.path.join(output_folder, result_filename)
+            if not os.path.exists(result_path):
+                output_pdf.save(result_path)
+                break
 
-        # Always highlight these lines if present
-        for kw in keywords_to_always_highlight:
-            if kw in text:
-                add_highlight(page, kw, full_row=False)
-                matched = True
+    # Save unmatched entries
+    if not_found:
+        df_not_found = pd.DataFrame(list(not_found))
+        df_not_found.to_excel(os.path.join(output_folder, "Data_Not_Found.xlsx"), index=False, header=False)
 
-        for val in values:
-            if val in text:
-                matched = True
-                if mode == 'uan':
-                    add_highlight(page, val, full_row=False)  # only highlight text
-                elif mode == 'esic':
-                    add_highlight(page, val, full_row=True)   # full row highlight
-                found_values.append(val)
+    pdf_document.close()
+    output_pdf.close()
 
-        if matched:
-            pdf_writer.add_page(page)
-
-    # Save matched pages to output PDF
-    output_pdf_path = os.path.join(Config.OUTPUT_FOLDER, 'highlighted.pdf')
-    with open(output_pdf_path, 'wb') as f:
-        pdf_writer.write(f)
-
-    # Save unmatched entries to Excel
-    not_found = list(set(values) - set(found_values))
-    not_found_df = df[df.iloc[:, 0].astype(str).isin(not_found)]
-    not_found_excel = os.path.join(Config.OUTPUT_FOLDER, 'Data_Not_Found.xlsx')
-    not_found_df.to_excel(not_found_excel, index=False)
-
-    return output_pdf_path, not_found_excel
+# Example usage:
+# highlight_pdf("example.pdf", "input.xlsx", "output_folder")
