@@ -2,66 +2,78 @@ import fitz  # PyMuPDF
 import pandas as pd
 import os
 from openpyxl import Workbook
+from tkinter import filedialog
+from datetime import datetime
 
-def highlight_pdf(input_pdf_path, excel_path, output_folder):
-    # Read Excel column (assuming first column contains UAN/ESIC numbers)
-    excel_df = pd.read_excel(excel_path, header=None)
-    keywords = set(str(x).strip() for x in excel_df.iloc[:, 0].dropna())
 
-    not_found = set(keywords)
+def highlight_and_extract(pdf_path, excel_path, output_folder, match_keywords):
+    df = pd.read_excel(excel_path)
+    match_values = df.iloc[:, 0].astype(str).tolist()
 
-    pdf_document = fitz.open(input_pdf_path)
+    pdf = fitz.open(pdf_path)
+    matched_pages = []
+    not_found = []
+
+    base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_pdf_path = os.path.join(output_folder, f"{base_name}_highlighted_{now}.pdf")
+
     output_pdf = fitz.open()
 
-    for page_num in range(len(pdf_document)):
-        page = pdf_document[page_num]
-        text_instances = []
-
-        for word in page.get_text("words"):
-            word_text = word[4].strip()
-            if word_text in keywords:
-                not_found.discard(word_text)
-                text_instances.append(word)
-
-        if text_instances:
+    for page_num, page in enumerate(pdf):
+        page_matched = False
+        for val in match_values:
+            found = False
+            text_instances = page.search_for(val)
             for inst in text_instances:
-                keyword = inst[4].strip()
-                rect = fitz.Rect(inst[0], inst[1], inst[2], inst[3])
+                nearby_text = page.get_textbox(inst).lower()
 
-                # Check if ESIC or PF page based on header text
-                page_text = page.get_text().lower()
+                # Check for any keyword around the match
+                if any(keyword.lower() in nearby_text for keyword in match_keywords):
+                    found = True
+                    if "esic" in pdf_path.lower():
+                        # Full row highlight
+                        words = page.get_text("words")
+                        for w in words:
+                            if val in w[4]:
+                                y0 = w[1]
+                                y1 = w[3]
+                                row_words = [word for word in words if abs(word[1] - y0) < 1.5]
+                                for rw in row_words:
+                                    rect = fitz.Rect(rw[0], rw[1], rw[2], rw[3])
+                                    highlight = page.add_highlight_annot(rect)
+                        break
 
-                if "state insurance" in page_text or "esic" in page_text:
-                    # Highlight entire row for ESIC
-                    y0 = inst[1]
-                    y1 = inst[3]
-                    row_rect = fitz.Rect(0, y0 - 1, page.rect.width, y1 + 1)
-                    highlight = page.add_highlight_annot(row_rect)
-                else:
-                    # Highlight only UAN cell (PF type)
-                    highlight = page.add_highlight_annot(rect)
+                    else:
+                        # UAN or PF ECR case — only highlight number
+                        for inst in text_instances:
+                            highlight = page.add_highlight_annot(inst)
+                        break
 
-                highlight.set_colors(stroke=(1, 1, 0))  # Yellow
-                highlight.update()
-
-            output_pdf.insert_pdf(pdf_document, from_page=page_num, to_page=page_num)
-
-    if len(output_pdf) > 0:
-        base_name = os.path.splitext(os.path.basename(input_pdf_path))[0]
-        for i in range(1, 1000):
-            result_filename = f"{base_name}_highlighted_{i}.pdf"
-            result_path = os.path.join(output_folder, result_filename)
-            if not os.path.exists(result_path):
-                output_pdf.save(result_path)
+            if found:
+                matched_pages.append(page_num)
+                page_matched = True
                 break
 
-    # Save unmatched entries
+        if page_matched:
+            output_pdf.insert_pdf(pdf, from_page=page_num, to_page=page_num)
+
+        else:
+            not_found.append(val)
+
+    if matched_pages:
+        output_pdf.save(output_pdf_path)
+
+    # Save unmatched values
     if not_found:
-        df_not_found = pd.DataFrame(list(not_found))
-        df_not_found.to_excel(os.path.join(output_folder, "Data_Not_Found.xlsx"), index=False, header=False)
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Data Not Found"])
+        for item in not_found:
+            ws.append([item])
+        excel_save_path = os.path.join(output_folder, "Data_Not_Found.xlsx")
+        wb.save(excel_save_path)
 
-    pdf_document.close()
+    pdf.close()
     output_pdf.close()
-
-# Example usage:
-# highlight_pdf("example.pdf", "input.xlsx", "output_folder")
+    return output_pdf_path if matched_pages else None
